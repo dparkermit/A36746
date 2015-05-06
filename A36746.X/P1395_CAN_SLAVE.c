@@ -1,21 +1,32 @@
 #include <xc.h>
 #include <timer.h>
 #include "P1395_CAN_SLAVE.h"
-#include "ETM_EEPROM.h"
-#include "ETM_ANALOG.h"
 
+
+#include "ETM.h"
+//#include "ETM_EEPROM.h"
+//#include "ETM_ANALOG.h"
+
+typedef struct {
+  unsigned int  address;
+  unsigned long led;
+
+  unsigned long agile_id;
+  unsigned long agile_dash;
+} TYPE_CAN_PARAMETERS;
+
+TYPE_CAN_PARAMETERS can_params;
+ 
 // ----------- Can Timers T4 & T5 Configuration ----------- //
-// DPARKER ADD Description of what T4 and T5 are used for
-#define T4_FREQUENCY_HZ          10  // This is 100mS rate
-#define T5_FREQUENCY_HZ          4   // This is 250ms rate
+#define T4_FREQUENCY_HZ          10  // This is 100mS rate  // This is used to clock transmissions to the master.  A Status message and 1 of the 16 log messages is sent at every 100ms Interval
+#define T5_FREQUENCY_HZ          4   // This is 250ms rate  // This is used as timeout on the CAN bus.  If a message is not recieved from the master before this overflows an error is generated
 
 // DPARKER remove the need for timers.h here
 #define T4CON_VALUE              (T4_OFF & T4_IDLE_CON & T4_GATE_OFF & T4_PS_1_256 & T4_32BIT_MODE_OFF & T4_SOURCE_INT)
-#define PR4_VALUE                (unsigned int)(FCY_CLK/256/T4_FREQUENCY_HZ)
 
 // DPARKER consider moving T5 to 
 #define T5CON_VALUE              (T5_OFF & T5_IDLE_CON & T5_GATE_OFF & T5_PS_1_256 & T5_SOURCE_INT)
-#define PR5_VALUE                (unsigned int)(FCY_CLK/256/T5_FREQUENCY_HZ)
+
 
 
 
@@ -185,12 +196,12 @@ void ETMCanSlaveProcessMessage(void) {
   while (ETMCanBufferNotEmpty(&etm_can_rx_message_buffer)) {
     ETMCanReadMessageFromBuffer(&etm_can_rx_message_buffer, &next_message);
     
-    if ((next_message.identifier & 0b0000000001111000) != (ETM_CAN_MY_ADDRESS << 3)) {
+    if ((next_message.identifier & 0b0000000001111000) != (can_params.address << 3)) {
       // It was not addressed to this board
       local_can_errors.address_error++;
-    } else if (next_message.identifier == (ETM_CAN_MSG_CMD_RX | (ETM_CAN_MY_ADDRESS << 3))) {
+    } else if (next_message.identifier == (ETM_CAN_MSG_CMD_RX | (can_params.address << 3))) {
       ETMCanSlaveExecuteCMD(&next_message);      
-    } else if (next_message.identifier == (ETM_CAN_MSG_REQUEST_RX | (ETM_CAN_MY_ADDRESS << 3))) {
+    } else if (next_message.identifier == (ETM_CAN_MSG_REQUEST_RX | (can_params.address << 3))) {
       ETMCanSlaveReturnCalibrationPair(&next_message);
     } else {
       local_can_errors.unknown_message_identifier++;
@@ -213,7 +224,7 @@ void ETMCanSlaveExecuteCMD(ETMCanMessage* message_ptr) {
   unsigned int index_word;
   index_word = message_ptr->word3;
   
-  if ((index_word & 0xF000) != (ETM_CAN_MY_ADDRESS << 12)) {
+  if ((index_word & 0xF000) != (can_params.address << 12)) {
     // The index is not addressed to this board
     local_can_errors.invalid_index++;
     return;
@@ -284,7 +295,7 @@ void ETMCanSlaveReturnCalibrationPair(ETMCanMessage* message_ptr) {
   unsigned int index_word;
   index_word = message_ptr->word3;
   
-  if ((index_word & 0xF000) != (ETM_CAN_MY_ADDRESS << 12)) {
+  if ((index_word & 0xF000) != (can_params.address << 12)) {
     // The index is not addressed to this board
     local_can_errors.invalid_index++;
     return;
@@ -300,7 +311,7 @@ void ETMCanSlaveReturnCalibrationPair(ETMCanMessage* message_ptr) {
   
   index_word -= 0x0800;
   // The request is valid, return the data stored in eeprom
-  return_msg.identifier = ETM_CAN_MSG_SET_2_TX | (ETM_CAN_MY_ADDRESS << 3);
+  return_msg.identifier = ETM_CAN_MSG_SET_2_TX | (can_params.address << 3);
   return_msg.word3 = message_ptr->word3 - 0x0800;
   return_msg.word2 = 0;
   return_msg.word1 = ETMEEPromReadWord(index_word + 1);
@@ -449,7 +460,7 @@ void ETMCanSlaveTimedTransmit(void) {
 
 void ETMCanSlaveSendStatus(void) {
   ETMCanMessage message;
-  message.identifier = ETM_CAN_MSG_STATUS_TX | (ETM_CAN_MY_ADDRESS << 3);
+  message.identifier = ETM_CAN_MSG_STATUS_TX | (can_params.address << 3);
 
   message.word0 = _CONTROL_REGISTER;
   message.word1 = _FAULT_REGISTER;
@@ -466,7 +477,7 @@ void ETMCanSlaveLogData(unsigned int packet_id, unsigned int word3, unsigned int
   ETMCanMessage log_message;
   
   packet_id &= 0x000F;
-  packet_id |= (ETM_CAN_MY_ADDRESS << 4);
+  packet_id |= (can_params.address << 4);
   packet_id <<= 1;
   packet_id |= 0b0000011000000000;
   packet_id <<= 2;
@@ -605,7 +616,21 @@ void ETMCanSlaveClearDebug(void) {
   _SWR = 0;
 }
 
-void ETMCanSlaveInitialize(void) {
+
+void ETMCanSlaveInitialize(unsigned long fcy, unsigned int etm_can_address, unsigned long can_operation_led, unsigned int can_interrupt_priority) {
+  unsigned long timer_period_value;
+
+  if (can_interrupt_priority > 7) {
+    can_interrupt_priority = 7;
+  }
+  
+  can_params.address = etm_can_address;
+  can_params.led = can_operation_led;
+
+
+  //can_params.fcy = fcy;
+  //can_params.can_interrupt_priority = can_interrupt_priority;
+
   etm_can_persistent_data.reset_count++;
   
   _SYNC_CONTROL_WORD = 0;
@@ -616,9 +641,10 @@ void ETMCanSlaveInitialize(void) {
   local_debug_data.reset_count = etm_can_persistent_data.reset_count;
   local_can_errors.timeout = etm_can_persistent_data.can_timeout_count;
 
+
   _CXIE = 0;
   _CXIF = 0;
-  _CXIP = ETM_CAN_INTERRUPT_PRIORITY;
+  _CXIP = can_interrupt_priority;
   
   CXINTF = 0;
   
@@ -638,8 +664,20 @@ void ETMCanSlaveInitialize(void) {
   // Set Baud Rate
   CXCTRL = CXCTRL_CONFIG_MODE_VALUE;
   while(CXCTRLbits.OPMODE != 4);
+
+
+  if (fcy == 25000000) {
+    CXCFG1 = CXCFG1_25MHZ_FCY_VALUE;    
+  } else if (fcy == 20000000) {
+    CXCFG1 = CXCFG1_20MHZ_FCY_VALUE;    
+  } else if (fcy == 10000000) {
+    CXCFG1 = CXCFG1_10MHZ_FCY_VALUE;    
+  } else {
+    // If you got here we can't configure the can module
+    // DPARKER WHAT TO DO HERE
+  }
   
-  CXCFG1 = ETM_CAN_CXCFG1_VALUE;
+
   CXCFG2 = CXCFG2_VALUE;
   
   
@@ -650,7 +688,7 @@ void ETMCanSlaveInitialize(void) {
   // Load Filter registers
   CXRXF0SID = ETM_CAN_MSG_LVL_FILTER;
   CXRXF1SID = ETM_CAN_MSG_SYNC_FILTER;
-  CXRXF2SID = (ETM_CAN_MSG_SLAVE_FILTER | (ETM_CAN_MY_ADDRESS << 3));
+  CXRXF2SID = (ETM_CAN_MSG_SLAVE_FILTER | (can_params.address << 3));
   CXRXF3SID = ETM_CAN_MSG_FILTER_OFF;
   CXRXF4SID = ETM_CAN_MSG_FILTER_OFF;
   CXRXF5SID = ETM_CAN_MSG_FILTER_OFF;
@@ -675,30 +713,57 @@ void ETMCanSlaveInitialize(void) {
   
   // Enable Can interrupt
   _CXIE = 1;
-
+  
+  
   // Configure T4
+  //#define PR4_VALUE                (unsigned int)(FCY_CLK/256/T4_FREQUENCY_HZ)
+  timer_period_value = fcy;
+  timer_period_value >>= 8;
+  timer_period_value /= T4_FREQUENCY_HZ;
+  if (timer_period_value > 0xFFFF) {
+    timer_period_value = 0xFFFF;
+  }
   T4CON = T4CON_VALUE;
-  PR4 = PR4_VALUE;  
+  PR4 = timer_period_value;  
   TMR4 = 0;
   _T4IF = 0;
   _T4IE = 0;
   T4CONbits.TON = 1;
-
+  
   // Configure T5
+  // #define PR5_VALUE                (unsigned int)(FCY_CLK/256/T5_FREQUENCY_HZ)
+  timer_period_value = fcy;
+  timer_period_value >>= 8;
+  timer_period_value /= T5_FREQUENCY_HZ;
+  if (timer_period_value > 0xFFFF) {
+    timer_period_value = 0xFFFF;
+  }
   T5CON = T5CON_VALUE;
-  PR5 = PR5_VALUE;
+  PR5 = timer_period_value;
   _T5IF = 0;
   _T5IE = 0;
   T5CONbits.TON = 1;
 
-  etm_can_my_configuration.agile_number_high_word = ETM_CAN_AGILE_ID_HIGH;
-  etm_can_my_configuration.agile_number_low_word  = ETM_CAN_AGILE_ID_LOW;
-  etm_can_my_configuration.agile_dash             = ETM_CAN_AGILE_DASH;
-  etm_can_my_configuration.agile_rev_ascii        = ETM_CAN_AGILE_REV;
-  etm_can_my_configuration.serial_number          = ETM_CAN_SERIAL_NUMBER;
+  ETMPinTrisOutput(can_params.led);
+
 }
 
 
+void ETMCanSlaveLoadConfiguration(unsigned long agile_id, unsigned int agile_dash, unsigned int firmware_agile_rev, unsigned int firmware_branch, unsigned int firmware_minor_rev) {
+
+  etm_can_my_configuration.agile_number_low_word = (agile_id & 0xFFFF);
+  agile_id >>= 16;
+  etm_can_my_configuration.agile_number_high_word = agile_id;
+  etm_can_my_configuration.agile_dash = agile_dash;
+  etm_can_my_configuration.firmware_branch = firmware_branch;
+  etm_can_my_configuration.firmware_major_rev = firmware_agile_rev;
+  etm_can_my_configuration.firmware_minor_rev = firmware_minor_rev;
+
+  // Load default values for agile rev and serial number at this time
+  // Need some way to update these with the real numbers
+  etm_can_my_configuration.agile_rev_ascii = 'A';
+  etm_can_my_configuration.serial_number = 0;
+}
 
 
 // Can interrupt ISR for slave modules
@@ -759,10 +824,10 @@ void __attribute__((interrupt(__save__(CORCON,SR)), no_auto_psv)) _CXInterrupt(v
     CXINTFbits.ERRIF = 0;
   } else {
     // FLASH THE CAN LED
-    if (PIN_CAN_OPERATION_LED) {
-      PIN_CAN_OPERATION_LED = 0;
+    if (ETMReadPinLatch(can_params.led)) {
+      ETMClearPin(can_params.led);
     } else {
-      PIN_CAN_OPERATION_LED = 1;
+      ETMSetPin(can_params.led);
     }
   }
   //local_can_errors.CXEC_reg = CXEC;
@@ -782,7 +847,7 @@ void __attribute__((interrupt(__save__(CORCON,SR)), no_auto_psv)) _CXInterrupt(v
 
 void ETMCanSlavePulseSyncSendNextPulseLevel(unsigned int next_pulse_level, unsigned int next_pulse_count) {
   ETMCanMessage message;
-  message.identifier = ETM_CAN_MSG_LVL_TX | (ETM_CAN_MY_ADDRESS << 3); 
+  message.identifier = ETM_CAN_MSG_LVL_TX | (can_params.address << 3); 
   message.word0      = next_pulse_count;
   if (next_pulse_level) {
     message.word1    = 0xFFFF;

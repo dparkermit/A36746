@@ -1,6 +1,7 @@
 #include "A36746.h"
 #include "FIRMWARE_VERSION.h"
 
+#define FCY_CLK 10000000
 
 _FOSC(ECIO & CSW_FSCM_OFF); 
 _FWDT(WDT_ON & WDTPSA_512 & WDTPSB_8);  // 8 Second watchdog timer 
@@ -421,10 +422,6 @@ void DoA36746(void) {
 
 void InitializeA36746(void) {
 
-  etm_can_my_configuration.firmware_major_rev = FIRMWARE_AGILE_REV;
-  etm_can_my_configuration.firmware_branch = FIRMWARE_BRANCH;
-  etm_can_my_configuration.firmware_minor_rev = FIRMWARE_MINOR_REV;
-
   // Initialize the status register and load the inhibit and fault masks
   _FAULT_REGISTER = 0;
   _CONTROL_REGISTER = 0;
@@ -475,7 +472,8 @@ void InitializeA36746(void) {
   ETMEEPromConfigureExternalDevice(EEPROM_SIZE_8K_BYTES, FCY_CLK, 400000, EEPROM_I2C_ADDRESS_0, 1);
 
   // Initialize the Can module
-  ETMCanSlaveInitialize();
+  ETMCanSlaveInitialize(FCY_CLK, ETM_CAN_ADDR_COOLING_INTERFACE_BOARD, _PIN_RG13, 4);
+  ETMCanSlaveLoadConfiguration(36746, 0, FIRMWARE_AGILE_REV, FIRMWARE_BRANCH, FIRMWARE_MINOR_REV);
 
 
 

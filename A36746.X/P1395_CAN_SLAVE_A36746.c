@@ -1,5 +1,4 @@
 #include "P1395_CAN_SLAVE.h"
-
 #include "A36746.h"
 
 //void ETMCanSlaveExecuteCMDBoardSpecific(ETMCanMessage* message_ptr);
