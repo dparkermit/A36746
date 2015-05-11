@@ -1,9 +1,6 @@
 #include "P1395_CAN_SLAVE.h"
 #include "A36746.h"
 
-//void ETMCanSlaveExecuteCMDBoardSpecific(ETMCanMessage* message_ptr);
-//void ETMCanSlaveLogData(unsigned int packet_id, unsigned int word3, unsigned int word2, unsigned int word1, unsigned int word0);
-
 void ETMCanSlaveExecuteCMDBoardSpecific(ETMCanMessage* message_ptr) {
   unsigned int index_word;
 

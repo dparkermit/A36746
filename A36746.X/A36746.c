@@ -213,6 +213,7 @@ void DoA36746(void) {
     local_debug_data.debug_5 = PWM3_IC3_hv_tank_flow.period_array[PWM3_IC3_hv_tank_flow.current_index] + PWM3_IC3_hv_tank_flow.period_array[(PWM3_IC3_hv_tank_flow.current_index - 1) & 0xFF];
 
     local_debug_data.debug_6 = global_data_A36746.control_state;
+    //local_debug_data.debug_6 = p1395_can_slave_version;
     local_debug_data.debug_7 = global_data_A36746.analog_input_coolant_temperature.reading_scaled_and_calibrated;
     local_debug_data.debug_8 = global_data_A36746.cabinet_temperature_kelvin;
     local_debug_data.debug_9 = global_data_A36746.flow_magnetron;
@@ -532,17 +533,7 @@ void InitializeA36746(void) {
     global_data_A36746.SF6_bottle_pulses_remaining = 700;
   }
 
-#define PWM1_INITITAL_PERIOD 195 // 200 Hz
-#define PWM2_INITITAL_PERIOD 391 // 100 Hz
-#define PWM3_INITITAL_PERIOD 1302 // 30 Hz 
-
-  PWM1_IC1_magnetron_flow.period_array[PWM1_IC1_magnetron_flow.current_index] = PWM1_INITITAL_PERIOD;
-  PWM2_IC2_linac_flow.period_array[PWM2_IC2_linac_flow.current_index] = PWM2_INITITAL_PERIOD;
-  PWM3_IC3_hv_tank_flow.period_array[PWM3_IC3_hv_tank_flow.current_index] = PWM3_INITITAL_PERIOD;
-
-  
-#define ICXCON_VALUE  (IC_TIMER2_SRC & IC_INT_1CAPTURE & IC_EVERY_EDGE)
-
+  // Initialize input capture modules
   IC1CON = ICXCON_VALUE;
   IC2CON = ICXCON_VALUE;
   IC3CON = ICXCON_VALUE;
@@ -604,11 +595,27 @@ void InputCaptureWriteMaxPeriod(PWMReading* ptr_pwm) {
 
 unsigned int InputCaptureCalculateFrequency(PWMReading* ptr_pwm) {
   unsigned int temp;
-  temp = ptr_pwm->period_array[ptr_pwm->current_index];
-  temp += ptr_pwm->period_array[((ptr_pwm->current_index-1) & 0xFF)];
-  if (temp <= PERIOD_MAX_FREQUENCY) {
-    temp = PERIOD_MAX_FREQUENCY;
+  unsigned long period_average;
+  unsigned int n;
+  // DPARKER move this to accumlator and dsp
+  // As written this will take 359us per flow meter
+  // With DSP it would take ~ 26uS
+  period_average = 0;
+  for (n = 0; n <= 255; n++) {
+    period_average += ptr_pwm->period_array[n];
   }
+  period_average >> 7;
+  if (period_average >= 0xFFFF) {
+    period_average = 0xFFFF;
+  }
+  temp = period_average;
+  /*
+    temp = ptr_pwm->period_array[ptr_pwm->current_index];
+    temp += ptr_pwm->period_array[((ptr_pwm->current_index-1) & 0xFF)];
+    if (temp <= PERIOD_MAX_FREQUENCY) {
+    temp = PERIOD_MAX_FREQUENCY;
+    }
+  */
   temp = 39062 / temp;
   return temp;
 }

@@ -224,6 +224,12 @@
 
 
 
+/*
+  Input Capture Configuration
+  User Timer 2 as the source, Interrupt Flag set on every capture, capture on every edge
+*/
+#define ICXCON_VALUE  (IC_TIMER2_SRC & IC_INT_1CAPTURE & IC_EVERY_EDGE)
+
 
 
 // -------------------- A36746 STATUS BIT CONFIGURATION ------------------------ //
