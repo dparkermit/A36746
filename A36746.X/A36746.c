@@ -26,6 +26,7 @@ void InputCaptureSavePeriod(unsigned int latest_capture, PWMReading* ptr_pwm);
 void InputCaptureWriteMaxPeriod(PWMReading* ptr_pwm);
 
 unsigned int InputCaptureCalculateFrequency(PWMReading* ptr_pwm);
+unsigned int InputCaptureCalculateFlow(PWMReading* ptr_pwm);
 
 LTC265X U14_LTC2656;
 CoolingGlobalStruct global_data_A36746;
@@ -228,35 +229,38 @@ void DoA36746(void) {
 
 
 
-
-    frequency = InputCaptureCalculateFrequency(&PWM1_IC1_magnetron_flow);      
-    if (frequency < FLOW_METER_MIN_FREQUENCY) {
+    global_data_A36746.flow_magnetron = InputCaptureCalculateFlow(&PWM1_IC1_magnetron_flow);
+    /*
+      frequency = InputCaptureCalculateFrequency(&PWM1_IC1_magnetron_flow);      
+      if (frequency < FLOW_METER_MIN_FREQUENCY) {
       global_data_A36746.flow_magnetron = 0;
-    } else {
+      } else {
       global_data_A36746.flow_magnetron = FLOW_METER_ML_PER_HZ*frequency + FLOW_METER_CONSTANT;
-    }
-    local_debug_data.debug_0 = frequency;
-      
+      }
+      local_debug_data.debug_0 = frequency;
+    */
 
-    // Calculate flow for PWM2_IC2_linac_flow
-    frequency = InputCaptureCalculateFrequency(&PWM2_IC2_linac_flow);      
-    if (frequency < FLOW_METER_MIN_FREQUENCY) {
+    global_data_A36746.flow_linac = InputCaptureCalculateFlow(&PWM2_IC2_linac_flow);
+    /*
+      frequency = InputCaptureCalculateFrequency(&PWM2_IC2_linac_flow);      
+      if (frequency < FLOW_METER_MIN_FREQUENCY) {
       global_data_A36746.flow_linac = 0;
-    } else {
+      } else {
       global_data_A36746.flow_linac = FLOW_METER_ML_PER_HZ*frequency + FLOW_METER_CONSTANT;
-    }
-    local_debug_data.debug_1 = frequency;
+      }
+      local_debug_data.debug_1 = frequency;
+    */
 
-
-    // Calculate flow for PWM3_IC3_hv_tank_flow
-    frequency = InputCaptureCalculateFrequency(&PWM3_IC3_hv_tank_flow);      
-    if (frequency < FLOW_METER_MIN_FREQUENCY) {
+    global_data_A36746.flow_hv_tank = InputCaptureCalculateFlow(&PWM3_IC3_hv_tank_flow);
+    /*
+      frequency = InputCaptureCalculateFrequency(&PWM3_IC3_hv_tank_flow);      
+      if (frequency < FLOW_METER_MIN_FREQUENCY) {
       global_data_A36746.flow_hv_tank = 0;
-    } else {
+      } else {
       global_data_A36746.flow_hv_tank = FLOW_METER_ML_PER_HZ*frequency + FLOW_METER_CONSTANT;
-    }
-    local_debug_data.debug_2 = frequency;
-
+      }
+      local_debug_data.debug_2 = frequency;
+    */
     
     // Update the flow meter, low speed counters.
     if (PWM1_IC1_magnetron_flow.counter_10ms_loop < 200) {
@@ -595,32 +599,46 @@ void InputCaptureWriteMaxPeriod(PWMReading* ptr_pwm) {
 
 unsigned int InputCaptureCalculateFrequency(PWMReading* ptr_pwm) {
   unsigned int temp;
-  unsigned long period_average;
+  
+  temp = ptr_pwm->period_array[ptr_pwm->current_index];
+  temp += ptr_pwm->period_array[((ptr_pwm->current_index-1) & 0xFF)];
+  if (temp <= PERIOD_MAX_FREQUENCY) {
+    temp = PERIOD_MAX_FREQUENCY;
+  }
+  
+  temp = 39062 / temp;
+  
+  return temp;
+}
+
+unsigned int InputCaptureCalculateFlow(PWMReading* ptr_pwm) {
+  unsigned int temp;
+  unsigned long period_sum;
   unsigned int n;
   // DPARKER move this to accumlator and dsp
   // As written this will take 359us per flow meter
   // With DSP it would take ~ 26uS
-  period_average = 0;
+  
+  period_sum = 0;
   for (n = 0; n <= 255; n++) {
-    period_average += ptr_pwm->period_array[n];
+    period_sum += ptr_pwm->period_array[n];
   }
-  period_average >> 7;
-  if (period_average >= 0xFFFF) {
-    period_average = 0xFFFF;
+  if (period_sum == 0) {
+    period_sum = 1;
   }
-  temp = period_average;
-  /*
-    temp = ptr_pwm->period_array[ptr_pwm->current_index];
-    temp += ptr_pwm->period_array[((ptr_pwm->current_index-1) & 0xFF)];
-    if (temp <= PERIOD_MAX_FREQUENCY) {
-    temp = PERIOD_MAX_FREQUENCY;
+  
+  if (period_sum > (4999936 / FLOW_METER_MIN_FREQUENCY)) {
+    temp = 0;
+  } else {
+    period_sum = (4999936 * FLOW_METER_ML_PER_HZ) / period_sum;
+    period_sum += FLOW_METER_CONSTANT;
+    if (period_sum >= 0xFFFF) {
+      period_sum = 0xFFFF;
     }
-  */
-  temp = 39062 / temp;
+    temp = period_sum;
+  }
   return temp;
 }
-
-
 
 
 void DoSF6Management(void) {
