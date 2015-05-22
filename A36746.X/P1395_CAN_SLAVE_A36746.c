@@ -56,7 +56,7 @@ void ETMCanSlaveLogCustomPacketD(void) {
 
   ETMCanSlaveLogData(ETM_CAN_DATA_LOG_REGISTER_COOLING_SLOW_FLOW_1,
 		     global_data_A36746.SF6_bottle_pulses_remaining,
-		     global_data_A36746.SF6_pulses_available,
+		     (((global_data_A36746.SF6_pulses_available & 0x00FF) << 8) + (global_data_A36746.SF6_low_pressure_override_counter & 0x00FF)),
 		     global_data_A36746.flow_hv_tank,
 		     global_data_A36746.flow_spare
 		     );
